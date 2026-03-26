@@ -13,10 +13,10 @@ app = Flask(__name__)
 CORS(app)
 
 # Config
-app.config['SECRET_KEY'] = 'change-this-in-production-please'
-app.config['JWT_SECRET_KEY'] = 'jwt-secret-change-this-too'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'change-this-in-production-please')
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'jwt-secret-change-this-too')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///sidequests.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///sidequests.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
