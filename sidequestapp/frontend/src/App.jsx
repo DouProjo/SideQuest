@@ -1,0 +1,733 @@
+import { useState, useEffect, useRef } from "react";
+
+const API = "http://localhost:5000";
+
+const DIFF_CONFIG = {
+  easy:      { color: "#22c55e", bg: "#dcfce7", label: "Easy",      emoji: "🟢" },
+  medium:    { color: "#f59e0b", bg: "#fef3c7", label: "Medium",    emoji: "🟡" },
+  hard:      { color: "#ef4444", bg: "#fee2e2", label: "Hard",      emoji: "🔴" },
+  legendary: { color: "#8b5cf6", bg: "#ede9fe", label: "Legendary", emoji: "💜" },
+};
+
+const CATEGORIES = ["All","Outdoor","Food","Culture","Fitness","Social","Adventure","Learning","Creative","Challenge","Nature"];
+
+function apiCall(path, opts = {}, token) {
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (opts.body && typeof opts.body === "object" && !(opts.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(opts.body);
+  }
+  return fetch(API + path, { ...opts, headers }).then(r => r.json());
+}
+
+// ---- Avatar ----
+function Avatar({ user, size = 40 }) {
+  const initials = user?.username?.slice(0, 2).toUpperCase() || "?";
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%",
+      background: user?.avatar_color || "#7C3AED",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      color: "#fff", fontWeight: 700, fontSize: size * 0.36,
+      flexShrink: 0, fontFamily: "'Space Grotesk', sans-serif"
+    }}>{initials}</div>
+  );
+}
+
+// ---- Difficulty Badge ----
+function DiffBadge({ diff }) {
+  const c = DIFF_CONFIG[diff] || DIFF_CONFIG.easy;
+  return (
+    <span style={{
+      background: c.bg, color: c.color,
+      border: `1px solid ${c.color}33`,
+      borderRadius: 99, padding: "2px 10px",
+      fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+      textTransform: "uppercase"
+    }}>{c.emoji} {c.label}</span>
+  );
+}
+
+// ---- Points Pill ----
+function PointsPill({ pts }) {
+  return (
+    <span style={{
+      background: "#1e1b4b", color: "#c4b5fd",
+      borderRadius: 99, padding: "2px 10px",
+      fontSize: 12, fontWeight: 700
+    }}>⭐ {pts} pts</span>
+  );
+}
+
+// ===== APP =====
+export default function App() {
+  const [token, setToken] = useState(() => localStorage.getItem("sq_token"));
+  const [user, setUser] = useState(null);
+  const [tab, setTab] = useState("quests");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (token) {
+      apiCall("/api/auth/me", {}, token)
+        .then(u => { setUser(u); setLoading(false); })
+        .catch(() => { setToken(null); localStorage.removeItem("sq_token"); setLoading(false); });
+    } else setLoading(false);
+  }, [token]);
+
+  function handleLogin(t, u) {
+    localStorage.setItem("sq_token", t);
+    setToken(t); setUser(u);
+  }
+  function handleLogout() {
+    localStorage.removeItem("sq_token");
+    setToken(null); setUser(null); setTab("quests");
+  }
+
+  if (loading) return <SplashScreen />;
+  if (!token || !user) return <AuthScreen onLogin={handleLogin} />;
+
+  return (
+    <div style={{ fontFamily: "'Space Grotesk', sans-serif", minHeight: "100vh", background: "#0f0a1e", color: "#e2d9f3" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Bebas+Neue&display=swap');
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #4c1d95; border-radius: 4px; }
+        input, textarea, select { font-family: inherit; }
+        button { cursor: pointer; font-family: inherit; }
+      `}</style>
+      <Header user={user} tab={tab} setTab={setTab} onLogout={handleLogout} />
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: "0 16px 80px" }}>
+        {tab === "quests"      && <QuestsTab token={token} user={user} />}
+        {tab === "leaderboard" && <LeaderboardTab token={token} user={user} />}
+        {tab === "feed"        && <FeedTab token={token} />}
+        {tab === "schedule"    && <ScheduleTab token={token} user={user} />}
+        {tab === "profile"     && <ProfileTab token={token} user={user} setUser={setUser} />}
+      </main>
+    </div>
+  );
+}
+
+// ---- Splash ----
+function SplashScreen() {
+  return (
+    <div style={{ minHeight: "100vh", background: "#0f0a1e", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: 64 }}>⚔️</div>
+        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 48, color: "#c4b5fd", letterSpacing: 4 }}>SIDE QUEST</div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Auth ----
+function AuthScreen({ onLogin }) {
+  const [mode, setMode] = useState("login");
+  const [form, setForm] = useState({ username: "", password: "", email: "" });
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault(); setErr(""); setLoading(true);
+    const path = mode === "login" ? "/api/auth/login" : "/api/auth/register";
+    const body = mode === "login" ? { username: form.username, password: form.password } : form;
+    const res = await apiCall(path, { method: "POST", body });
+    setLoading(false);
+    if (res.error) { setErr(res.error); return; }
+    onLogin(res.token, res.user);
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0f0a1e", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Bebas+Neue&display=swap'); *{box-sizing:border-box;}`}</style>
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ fontSize: 56 }}>⚔️</div>
+          <div style={{ fontFamily: "'Bebas Neue'", fontSize: 52, color: "#c4b5fd", letterSpacing: 5, lineHeight: 1 }}>SIDE QUEST</div>
+          <div style={{ color: "#8b5cf6", fontSize: 14, marginTop: 8 }}>adventure awaits your crew</div>
+        </div>
+        <div style={{ background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 16, padding: 32 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+            {["login","register"].map(m => (
+              <button key={m} onClick={() => setMode(m)} style={{
+                flex: 1, padding: "10px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 14,
+                background: mode === m ? "#7c3aed" : "transparent", color: mode === m ? "#fff" : "#8b78b0",
+                transition: "all 0.2s"
+              }}>{m === "login" ? "Sign In" : "Create Account"}</button>
+            ))}
+          </div>
+          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Field label="Username" value={form.username} onChange={v => setForm(f => ({...f,username:v}))} />
+            {mode === "register" && <Field label="Email" type="email" value={form.email} onChange={v => setForm(f => ({...f,email:v}))} />}
+            <Field label="Password" type="password" value={form.password} onChange={v => setForm(f => ({...f,password:v}))} />
+            {err && <div style={{ color: "#f87171", fontSize: 13 }}>{err}</div>}
+            <button disabled={loading} style={{
+              marginTop: 8, padding: "13px", borderRadius: 10, border: "none",
+              background: "linear-gradient(135deg, #7c3aed, #4f46e5)", color: "#fff",
+              fontWeight: 700, fontSize: 15, letterSpacing: 0.5
+            }}>{loading ? "..." : mode === "login" ? "Begin Your Quest →" : "Join the Adventure →"}</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, type="text", value, onChange }) {
+  return (
+    <div>
+      <label style={{ fontSize: 12, color: "#8b78b0", fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", display: "block", marginBottom: 4 }}>{label}</label>
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} required
+        style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#0f0a1e", color: "#e2d9f3", fontSize: 15, outline: "none" }} />
+    </div>
+  );
+}
+
+// ---- Header ----
+function Header({ user, tab, setTab, onLogout }) {
+  const tabs = [
+    { id: "quests", label: "Quests", icon: "⚔️" },
+    { id: "feed", label: "Feed", icon: "📸" },
+    { id: "leaderboard", label: "Board", icon: "🏆" },
+    { id: "schedule", label: "Schedule", icon: "📅" },
+    { id: "profile", label: "Me", icon: "👤" },
+  ];
+  return (
+    <header style={{ background: "#1a1033", borderBottom: "1px solid #2d1f5e", position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 16px", display: "flex", alignItems: "center", gap: 16, height: 56 }}>
+        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 28, color: "#c4b5fd", letterSpacing: 3, flexShrink: 0 }}>⚔️ SIDE QUEST</div>
+        <nav style={{ display: "flex", gap: 4, flex: 1, justifyContent: "center" }}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding: "6px 12px", borderRadius: 8, border: "none",
+              background: tab === t.id ? "#7c3aed22" : "transparent",
+              color: tab === t.id ? "#c4b5fd" : "#8b78b0",
+              fontWeight: 600, fontSize: 13, transition: "all 0.2s",
+              borderBottom: tab === t.id ? "2px solid #7c3aed" : "2px solid transparent"
+            }}><span style={{ marginRight: 4 }}>{t.icon}</span>{t.label}</button>
+          ))}
+        </nav>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#e2d9f3" }}>{user.username}</div>
+            <div style={{ fontSize: 11, color: "#8b5cf6" }}>⭐ {user.total_points} pts</div>
+          </div>
+          <Avatar user={user} size={34} />
+          <button onClick={onLogout} style={{ background: "none", border: "1px solid #2d1f5e", color: "#8b78b0", borderRadius: 6, padding: "4px 10px", fontSize: 12 }}>Out</button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ---- QUESTS TAB ----
+function QuestsTab({ token, user }) {
+  const [quests, setQuests] = useState([]);
+  const [completions, setCompletions] = useState([]);
+  const [filter, setFilter] = useState({ category: "All", difficulty: "all", search: "" });
+  const [selected, setSelected] = useState(null);
+
+  useEffect(() => {
+    apiCall("/api/quests", {}, token).then(setQuests);
+    apiCall("/api/completions/me", {}, token).then(setCompletions);
+  }, [token]);
+
+  const completedIds = new Set(completions.map(c => c.quest_id));
+
+  const filtered = quests.filter(q => {
+    if (filter.category !== "All" && q.category !== filter.category) return false;
+    if (filter.difficulty !== "all" && q.difficulty !== filter.difficulty) return false;
+    if (filter.search && !q.title.toLowerCase().includes(filter.search.toLowerCase())) return false;
+    return true;
+  });
+
+  const stats = {
+    total: quests.length,
+    done: completedIds.size,
+    easy: quests.filter(q=>q.difficulty==="easy").length,
+    medium: quests.filter(q=>q.difficulty==="medium").length,
+    hard: quests.filter(q=>q.difficulty==="hard").length,
+    legendary: quests.filter(q=>q.difficulty==="legendary").length,
+  };
+
+  function onComplete() {
+    apiCall("/api/completions/me", {}, token).then(setCompletions);
+    setSelected(null);
+  }
+
+  return (
+    <div style={{ paddingTop: 24 }}>
+      {/* Stats Bar */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 24 }}>
+        {[
+          { label: "Completed", val: `${stats.done}/${stats.total}`, color: "#c4b5fd" },
+          { label: "🟢 Easy", val: stats.easy, color: "#22c55e" },
+          { label: "🟡 Medium", val: stats.medium, color: "#f59e0b" },
+          { label: "💜 Legendary", val: stats.legendary, color: "#8b5cf6" },
+        ].map(s => (
+          <div key={s.label} style={{ background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.val}</div>
+            <div style={{ fontSize: 11, color: "#8b78b0", marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <input placeholder="🔍 Search quests..." value={filter.search}
+          onChange={e => setFilter(f=>({...f,search:e.target.value}))}
+          style={{ flex: 1, minWidth: 180, padding: "9px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#1a1033", color: "#e2d9f3", fontSize: 14, outline: "none" }} />
+        <select value={filter.difficulty} onChange={e => setFilter(f=>({...f,difficulty:e.target.value}))}
+          style={{ padding: "9px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#1a1033", color: "#e2d9f3", fontSize: 14 }}>
+          <option value="all">All Difficulties</option>
+          {["easy","medium","hard","legendary"].map(d => <option key={d} value={d}>{DIFF_CONFIG[d].label}</option>)}
+        </select>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {CATEGORIES.map(c => (
+          <button key={c} onClick={() => setFilter(f=>({...f,category:c}))} style={{
+            padding: "5px 12px", borderRadius: 99, border: "1px solid",
+            borderColor: filter.category===c ? "#7c3aed" : "#2d1f5e",
+            background: filter.category===c ? "#7c3aed22" : "transparent",
+            color: filter.category===c ? "#c4b5fd" : "#8b78b0", fontSize: 12, fontWeight: 600
+          }}>{c}</button>
+        ))}
+      </div>
+
+      {/* Quest Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px,1fr))", gap: 14 }}>
+        {filtered.map(q => (
+          <QuestCard key={q.id} quest={q} done={completedIds.has(q.id)} onClick={() => setSelected(q)} />
+        ))}
+      </div>
+
+      {selected && (
+        <QuestModal quest={selected} token={token} user={user}
+          done={completedIds.has(selected.id)}
+          onClose={() => setSelected(null)} onComplete={onComplete} />
+      )}
+    </div>
+  );
+}
+
+function QuestCard({ quest, done, onClick }) {
+  const dc = DIFF_CONFIG[quest.difficulty];
+  return (
+    <div onClick={onClick} style={{
+      background: done ? "#1a2d1a" : "#1a1033",
+      border: `1px solid ${done ? "#166534" : "#2d1f5e"}`,
+      borderRadius: 14, padding: 18, cursor: "pointer",
+      transition: "transform 0.15s, border-color 0.15s",
+      opacity: done ? 0.8 : 1, position: "relative", overflow: "hidden"
+    }}
+      onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+      onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}>
+      {done && <div style={{ position: "absolute", top: 10, right: 10, fontSize: 18 }}>✅</div>}
+      <div style={{ fontSize: 32, marginBottom: 8 }}>{quest.icon}</div>
+      <div style={{ fontWeight: 700, fontSize: 15, color: "#e2d9f3", marginBottom: 6, lineHeight: 1.3 }}>{quest.title}</div>
+      <div style={{ fontSize: 12, color: "#8b78b0", marginBottom: 12, lineHeight: 1.5 }}>{quest.description.slice(0,80)}...</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <DiffBadge diff={quest.difficulty} />
+        <PointsPill pts={quest.points} />
+      </div>
+      <div style={{ marginTop: 8, fontSize: 11, color: "#6d5e8a" }}>{quest.category}</div>
+    </div>
+  );
+}
+
+// ---- Quest Modal ----
+function QuestModal({ quest, token, user, done, onClose, onComplete }) {
+  const [mode, setMode] = useState("solo");
+  const [note, setNote] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [partnerIds, setPartnerIds] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState("");
+
+  function handlePhoto(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    setPhoto(f);
+    setPhotoPreview(URL.createObjectURL(f));
+  }
+
+  async function submit() {
+    setErr(""); setSubmitting(true);
+    const fd = new FormData();
+    fd.append("quest_id", quest.id);
+    fd.append("mode", mode);
+    fd.append("partner_ids", partnerIds);
+    fd.append("note", note);
+    if (photo) fd.append("photo", photo);
+    const res = await apiCall("/api/completions", { method: "POST", body: fd }, token);
+    setSubmitting(false);
+    if (res.error) { setErr(res.error); return; }
+    onComplete();
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#0008", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 20,
+        padding: 28, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 36 }}>{quest.icon}</div>
+            <div style={{ fontFamily: "'Bebas Neue'", fontSize: 26, color: "#c4b5fd", letterSpacing: 2, marginTop: 4 }}>{quest.title}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#8b78b0", fontSize: 22 }}>✕</button>
+        </div>
+        <p style={{ color: "#b8a9d6", fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>{quest.description}</p>
+        <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+          <DiffBadge diff={quest.difficulty} />
+          <PointsPill pts={quest.points} />
+          <span style={{ fontSize: 12, color: "#8b78b0", padding: "2px 10px", border: "1px solid #2d1f5e", borderRadius: 99 }}>{quest.category}</span>
+        </div>
+
+        {done ? (
+          <div style={{ background: "#14532d22", border: "1px solid #166534", borderRadius: 10, padding: 16, textAlign: "center", color: "#4ade80" }}>
+            ✅ Quest Complete! Well done, adventurer.
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#8b78b0", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>Mode</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["solo","duo","group"].map(m => (
+                  <button key={m} onClick={() => setMode(m)} style={{
+                    flex: 1, padding: "9px", borderRadius: 8, border: "1px solid",
+                    borderColor: mode===m ? "#7c3aed" : "#2d1f5e",
+                    background: mode===m ? "#7c3aed33" : "transparent",
+                    color: mode===m ? "#c4b5fd" : "#8b78b0", fontWeight: 600, fontSize: 13
+                  }}>{m === "solo" ? "🧍 Solo" : m === "duo" ? "👫 Duo" : "👥 Group"}</button>
+                ))}
+              </div>
+            </div>
+            {mode !== "solo" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, color: "#8b78b0", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>Partner Usernames or IDs</label>
+                <input value={partnerIds} onChange={e => setPartnerIds(e.target.value)} placeholder="e.g. jake, 3, sam"
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#0f0a1e", color: "#e2d9f3", fontSize: 14, outline: "none" }} />
+              </div>
+            )}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#8b78b0", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>Note (optional)</label>
+              <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="How did it go? Any details..."
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#0f0a1e", color: "#e2d9f3", fontSize: 14, outline: "none", resize: "vertical", minHeight: 70 }} />
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: 12, color: "#8b78b0", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>📸 Proof Photo</label>
+              {photoPreview && <img src={photoPreview} alt="" style={{ width: "100%", borderRadius: 8, marginBottom: 8, maxHeight: 200, objectFit: "cover" }} />}
+              <label style={{ display: "block", padding: "10px", border: "1px dashed #4c1d95", borderRadius: 8, textAlign: "center", color: "#8b5cf6", fontSize: 14, cursor: "pointer" }}>
+                {photo ? "📷 Change photo" : "📷 Upload proof"}<input type="file" accept="image/*" onChange={handlePhoto} style={{ display: "none" }} />
+              </label>
+            </div>
+            {err && <div style={{ color: "#f87171", fontSize: 13, marginBottom: 10 }}>{err}</div>}
+            <button onClick={submit} disabled={submitting} style={{
+              width: "100%", padding: "13px", borderRadius: 10, border: "none",
+              background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
+              color: "#fff", fontWeight: 700, fontSize: 15
+            }}>{submitting ? "Submitting..." : `⚔️ Complete Quest (+${quest.points} pts)`}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---- LEADERBOARD TAB ----
+function LeaderboardTab({ token, user }) {
+  const [board, setBoard] = useState([]);
+
+  useEffect(() => { apiCall("/api/leaderboard", {}, token).then(setBoard); }, [token]);
+
+  const medals = ["🥇","🥈","🥉"];
+
+  return (
+    <div style={{ paddingTop: 24, maxWidth: 600, margin: "0 auto" }}>
+      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 40, color: "#c4b5fd", letterSpacing: 4, marginBottom: 24, textAlign: "center" }}>🏆 LEADERBOARD</div>
+      {board.map((u, i) => (
+        <div key={u.id} style={{
+          display: "flex", alignItems: "center", gap: 14,
+          background: u.id === user.id ? "#2d1f5e44" : "#1a1033",
+          border: `1px solid ${u.id === user.id ? "#7c3aed" : "#2d1f5e"}`,
+          borderRadius: 12, padding: "14px 18px", marginBottom: 8,
+          position: "relative", overflow: "hidden"
+        }}>
+          {i < 3 && <div style={{ position: "absolute", right: -10, top: -10, fontSize: 60, opacity: 0.1 }}>{medals[i]}</div>}
+          <div style={{ fontSize: 24, minWidth: 32 }}>{i < 3 ? medals[i] : `#${i+1}`}</div>
+          <Avatar user={u} size={44} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, color: "#e2d9f3", fontSize: 15 }}>{u.username}{u.id===user.id && " (you)"}</div>
+            <div style={{ fontSize: 12, color: "#8b78b0", marginTop: 2 }}>{u.completed_count} quests completed</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontFamily: "'Bebas Neue'", fontSize: 28, color: "#c4b5fd", letterSpacing: 2 }}>{u.total_points}</div>
+            <div style={{ fontSize: 11, color: "#8b5cf6" }}>POINTS</div>
+          </div>
+        </div>
+      ))}
+      {board.length === 0 && <div style={{ textAlign: "center", color: "#8b78b0", padding: 40 }}>No adventurers yet...</div>}
+    </div>
+  );
+}
+
+// ---- FEED TAB ----
+function FeedTab({ token }) {
+  const [feed, setFeed] = useState([]);
+
+  useEffect(() => { apiCall("/api/completions/feed", {}, token).then(setFeed); }, [token]);
+
+  return (
+    <div style={{ paddingTop: 24, maxWidth: 600, margin: "0 auto" }}>
+      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 40, color: "#c4b5fd", letterSpacing: 4, marginBottom: 24 }}>📸 QUEST FEED</div>
+      {feed.map(c => <FeedCard key={c.id} completion={c} />)}
+      {feed.length === 0 && <div style={{ textAlign: "center", color: "#8b78b0", padding: 40 }}>No completions yet. Go on a quest!</div>}
+    </div>
+  );
+}
+
+function FeedCard({ completion: c }) {
+  const q = c.quest;
+  return (
+    <div style={{ background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 14, marginBottom: 14, overflow: "hidden" }}>
+      {c.photo_url && <img src={API + c.photo_url} alt="" style={{ width: "100%", maxHeight: 300, objectFit: "cover" }} />}
+      <div style={{ padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+          <div>
+            <span style={{ fontWeight: 700, color: "#c4b5fd" }}>{c.username}</span>
+            <span style={{ color: "#8b78b0", fontSize: 13 }}> completed </span>
+            <span style={{ fontWeight: 600, color: "#e2d9f3" }}>{q?.title}</span>
+          </div>
+          <span style={{ fontSize: 10, color: "#6d5e8a", flexShrink: 0, marginLeft: 8 }}>{new Date(c.completed_at).toLocaleDateString()}</span>
+        </div>
+        {c.note && <p style={{ fontSize: 13, color: "#b8a9d6", margin: "8px 0", lineHeight: 1.5 }}>"{c.note}"</p>}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+          {q && <DiffBadge diff={q.difficulty} />}
+          <PointsPill pts={c.points_earned} />
+          <span style={{ fontSize: 11, color: "#8b78b0", padding: "2px 8px", border: "1px solid #2d1f5e", borderRadius: 99 }}>
+            {c.mode === "solo" ? "🧍 Solo" : c.mode === "duo" ? "👫 Duo" : "👥 Group"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- SCHEDULE TAB ----
+function ScheduleTab({ token, user }) {
+  const [schedules, setSchedules] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [viewUser, setViewUser] = useState(user.id);
+  const [form, setForm] = useState({ day_of_week: "Monday", start_time: "09:00", end_time: "17:00", label: "Available" });
+  const [adding, setAdding] = useState(false);
+
+  const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+  useEffect(() => {
+    apiCall("/api/users", {}, token).then(setUsers);
+  }, [token]);
+
+  useEffect(() => {
+    apiCall(`/api/schedules?user_id=${viewUser}`, {}, token).then(setSchedules);
+  }, [token, viewUser]);
+
+  async function addSlot() {
+    const res = await apiCall("/api/schedules", { method: "POST", body: form }, token);
+    if (!res.error) { setSchedules(s => [...s, res]); setAdding(false); }
+  }
+
+  async function deleteSlot(id) {
+    await apiCall(`/api/schedules/${id}`, { method: "DELETE" }, token);
+    setSchedules(s => s.filter(x => x.id !== id));
+  }
+
+  const grouped = DAYS.reduce((acc, d) => {
+    acc[d] = schedules.filter(s => s.day_of_week === d);
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ paddingTop: 24 }}>
+      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 40, color: "#c4b5fd", letterSpacing: 4, marginBottom: 24 }}>📅 SCHEDULES</div>
+
+      {/* User picker */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+        {users.map(u => (
+          <button key={u.id} onClick={() => setViewUser(u.id)} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "6px 14px",
+            borderRadius: 99, border: "1px solid",
+            borderColor: viewUser===u.id ? "#7c3aed" : "#2d1f5e",
+            background: viewUser===u.id ? "#7c3aed22" : "transparent",
+            color: viewUser===u.id ? "#c4b5fd" : "#8b78b0", cursor: "pointer"
+          }}>
+            <Avatar user={u} size={22} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{u.username}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8, marginBottom: 20 }}>
+        {DAYS.map(day => (
+          <div key={day} style={{ background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 10, padding: 10, minHeight: 80 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{day.slice(0,3)}</div>
+            {grouped[day].map(s => (
+              <div key={s.id} style={{ background: "#2d1f5e", borderRadius: 6, padding: "4px 6px", marginBottom: 4, fontSize: 10 }}>
+                <div style={{ color: "#c4b5fd", fontWeight: 600 }}>{s.label}</div>
+                <div style={{ color: "#8b78b0" }}>{s.start_time}–{s.end_time}</div>
+                {viewUser === user.id && (
+                  <button onClick={() => deleteSlot(s.id)} style={{ background: "none", border: "none", color: "#f87171", fontSize: 10, padding: 0, cursor: "pointer" }}>✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {viewUser === user.id && (
+        adding ? (
+          <div style={{ background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 14, padding: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 10, alignItems: "end" }}>
+              <div>
+                <label style={{ fontSize: 11, color: "#8b78b0", display: "block", marginBottom: 4 }}>Day</label>
+                <select value={form.day_of_week} onChange={e => setForm(f=>({...f,day_of_week:e.target.value}))}
+                  style={{ width: "100%", padding: "9px 8px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#0f0a1e", color: "#e2d9f3", fontSize: 13 }}>
+                  {DAYS.map(d => <option key={d}>{d}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: "#8b78b0", display: "block", marginBottom: 4 }}>Start</label>
+                <input type="time" value={form.start_time} onChange={e => setForm(f=>({...f,start_time:e.target.value}))}
+                  style={{ width: "100%", padding: "9px 8px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#0f0a1e", color: "#e2d9f3", fontSize: 13 }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: "#8b78b0", display: "block", marginBottom: 4 }}>End</label>
+                <input type="time" value={form.end_time} onChange={e => setForm(f=>({...f,end_time:e.target.value}))}
+                  style={{ width: "100%", padding: "9px 8px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#0f0a1e", color: "#e2d9f3", fontSize: 13 }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: "#8b78b0", display: "block", marginBottom: 4 }}>Label</label>
+                <input value={form.label} onChange={e => setForm(f=>({...f,label:e.target.value}))}
+                  style={{ width: "100%", padding: "9px 8px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#0f0a1e", color: "#e2d9f3", fontSize: 13 }} />
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={addSlot} style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700 }}>Add</button>
+                <button onClick={() => setAdding(false)} style={{ padding: "9px 10px", borderRadius: 8, border: "1px solid #2d1f5e", background: "none", color: "#8b78b0" }}>✕</button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setAdding(true)} style={{
+            padding: "11px 20px", borderRadius: 10, border: "1px dashed #4c1d95",
+            background: "none", color: "#8b5cf6", fontWeight: 600, fontSize: 14
+          }}>+ Add Availability Slot</button>
+        )
+      )}
+    </div>
+  );
+}
+
+// ---- PROFILE TAB ----
+function ProfileTab({ token, user, setUser }) {
+  const [completions, setCompletions] = useState([]);
+  const [editing, setEditing] = useState(false);
+  const [bio, setBio] = useState(user.bio || "");
+  const COLORS = ["#7C3AED","#059669","#DC2626","#2563EB","#D97706","#DB2777","#0891B2","#65A30D"];
+
+  useEffect(() => { apiCall("/api/completions/me", {}, token).then(setCompletions); }, [token]);
+
+  async function saveProfile() {
+    const res = await apiCall("/api/users/me", { method: "PATCH", body: { bio } }, token);
+    if (!res.error) { setUser(res); setEditing(false); }
+  }
+
+  async function setColor(color) {
+    const res = await apiCall("/api/users/me", { method: "PATCH", body: { avatar_color: color } }, token);
+    if (!res.error) setUser(res);
+  }
+
+  const byDiff = completions.reduce((acc, c) => {
+    const d = c.quest?.difficulty || "easy";
+    acc[d] = (acc[d] || 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ paddingTop: 24, maxWidth: 640, margin: "0 auto" }}>
+      {/* Profile header */}
+      <div style={{ background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 16, padding: 24, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+          <Avatar user={user} size={72} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: "'Bebas Neue'", fontSize: 32, color: "#c4b5fd", letterSpacing: 3 }}>{user.username}</div>
+            <div style={{ fontSize: 13, color: "#8b78b0", marginBottom: 8 }}>{user.email}</div>
+            {editing ? (
+              <textarea value={bio} onChange={e => setBio(e.target.value)}
+                placeholder="Tell your crew about yourself..."
+                style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #2d1f5e", background: "#0f0a1e", color: "#e2d9f3", fontSize: 13, resize: "none", minHeight: 60, outline: "none" }} />
+            ) : (
+              <div style={{ fontSize: 13, color: "#b8a9d6", lineHeight: 1.6 }}>{user.bio || "No bio yet..."}</div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              {editing ? (
+                <>
+                  <button onClick={saveProfile} style={{ padding: "6px 16px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 600, fontSize: 13 }}>Save</button>
+                  <button onClick={() => setEditing(false)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "none", color: "#8b78b0", fontSize: 13 }}>Cancel</button>
+                </>
+              ) : (
+                <button onClick={() => setEditing(true)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "none", color: "#8b78b0", fontSize: 13 }}>Edit Profile</button>
+              )}
+            </div>
+          </div>
+        </div>
+        {/* Color picker */}
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 11, color: "#8b78b0", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Avatar Color</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {COLORS.map(c => (
+              <button key={c} onClick={() => setColor(c)} style={{
+                width: 28, height: 28, borderRadius: "50%", background: c, border: "none",
+                outline: user.avatar_color === c ? `3px solid #fff` : "none",
+                cursor: "pointer"
+              }} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
+        <StatCard label="Total Points" val={user.total_points} color="#c4b5fd" />
+        <StatCard label="🟢 Easy" val={byDiff.easy||0} color="#22c55e" />
+        <StatCard label="🟡 Medium" val={byDiff.medium||0} color="#f59e0b" />
+        <StatCard label="💜 Legend" val={byDiff.legendary||0} color="#8b5cf6" />
+      </div>
+
+      {/* Recent completions */}
+      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 24, color: "#c4b5fd", letterSpacing: 3, marginBottom: 12 }}>⚔️ MY QUESTS</div>
+      {completions.length === 0 && <div style={{ color: "#8b78b0", textAlign: "center", padding: 30 }}>No quests completed yet. Get out there!</div>}
+      {completions.map(c => (
+        <div key={c.id} style={{ display: "flex", gap: 14, background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 10, padding: 14, marginBottom: 8, alignItems: "center" }}>
+          <div style={{ fontSize: 28 }}>{c.quest?.icon}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, color: "#e2d9f3", fontSize: 14 }}>{c.quest?.title}</div>
+            <div style={{ fontSize: 12, color: "#8b78b0", marginTop: 2 }}>{new Date(c.completed_at).toLocaleDateString()} · {c.mode}</div>
+          </div>
+          <PointsPill pts={c.points_earned} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatCard({ label, val, color }) {
+  return (
+    <div style={{ background: "#1a1033", border: "1px solid #2d1f5e", borderRadius: 12, padding: 14, textAlign: "center" }}>
+      <div style={{ fontSize: 24, fontWeight: 700, color }}>{val}</div>
+      <div style={{ fontSize: 11, color: "#8b78b0", marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
