@@ -4,6 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from functools import wraps
 from datetime import datetime, timedelta
 import os
 import uuid
@@ -33,11 +34,13 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
     avatar_color = db.Column(db.String(20), default='#7C3AED')
     bio = db.Column(db.String(200), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     completions = db.relationship('Completion', backref='user', lazy=True)
     schedules = db.relationship('Schedule', backref='user', lazy=True)
+    login_events = db.relationship('LoginEvent', backref='user', lazy=True)
 
     @property
     def total_points(self):
@@ -55,11 +58,35 @@ class User(db.Model):
             'bio': self.bio,
             'total_points': self.total_points,
             'completed_count': self.completed_count,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat(),
+            'is_admin': self.is_admin
         }
         if include_email:
             d['email'] = self.email
         return d
+
+
+class LoginEvent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    username = db.Column(db.String(80), nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    ip_address = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(300), nullable=True)
+    successful = db.Column(db.Boolean, default=False)
+    reason = db.Column(db.String(200), default='')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'username': self.username,
+            'timestamp': self.timestamp.isoformat(),
+            'ip_address': self.ip_address,
+            'user_agent': self.user_agent,
+            'successful': self.successful,
+            'reason': self.reason,
+        }
 
 
 class Quest(db.Model):
@@ -145,6 +172,17 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def admin_required(fn):
+    @wraps(fn)
+    @jwt_required()
+    def wrapper(*args, **kwargs):
+        user = User.query.get(get_jwt_identity())
+        if not user or not user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 # ---- Auth Routes ----
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -170,9 +208,36 @@ def register():
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     data = request.get_json()
-    user = User.query.filter_by(username=data['username']).first()
-    if not user or not check_password_hash(user.password_hash, data['password']):
+    username = data.get('username', '')
+    password = data.get('password', '')
+    user = User.query.filter_by(username=username).first()
+    ip = request.remote_addr or 'unknown'
+    ua = request.headers.get('User-Agent', '')
+
+    if not user or not check_password_hash(user.password_hash, password):
+        event = LoginEvent(
+            user_id=user.id if user else None,
+            username=username,
+            ip_address=ip,
+            user_agent=ua,
+            successful=False,
+            reason='invalid credentials'
+        )
+        db.session.add(event)
+        db.session.commit()
         return jsonify({'error': 'Invalid credentials'}), 401
+
+    event = LoginEvent(
+        user_id=user.id,
+        username=user.username,
+        ip_address=ip,
+        user_agent=ua,
+        successful=True,
+        reason='login success'
+    )
+    db.session.add(event)
+    db.session.commit()
+
     token = create_access_token(identity=user.id)
     return jsonify({'token': token, 'user': user.to_dict(include_email=True)})
 
@@ -182,6 +247,29 @@ def login():
 def me():
     user = User.query.get(get_jwt_identity())
     return jsonify(user.to_dict(include_email=True))
+
+
+@app.route('/api/auth/logins', methods=['GET'])
+@admin_required
+def list_login_events():
+    username = request.args.get('username')
+    successful = request.args.get('successful')
+    query = LoginEvent.query.order_by(LoginEvent.timestamp.desc())
+    if username:
+        query = query.filter(LoginEvent.username == username)
+    if successful in ['true', 'false', '1', '0']:
+        query = query.filter(LoginEvent.successful == (successful in ['true', '1']))
+    events = query.limit(250).all()
+    return jsonify([e.to_dict() for e in events])
+
+
+@app.route('/api/auth/logins/<int:event_id>', methods=['DELETE'])
+@admin_required
+def delete_login_event(event_id):
+    ev = LoginEvent.query.get_or_404(event_id)
+    db.session.delete(ev)
+    db.session.commit()
+    return jsonify({'message': 'deleted'})
 
 
 # ---- User Routes ----
