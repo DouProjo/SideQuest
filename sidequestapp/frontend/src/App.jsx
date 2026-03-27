@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const API = "http://localhost:5000";
+const API = "https://sidequest-yz6z.onrender.com";
 
 const DIFF_CONFIG = {
   easy:      { color: "#22c55e", bg: "#dcfce7", label: "Easy",      emoji: "🟢" },

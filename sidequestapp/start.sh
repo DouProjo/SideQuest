@@ -4,7 +4,7 @@ echo "🗺️  Starting Side Quest App..."
 echo ""
 
 # Start backend
-echo "⚔️  Starting Flask backend on http://localhost:5000 ..."
+echo "⚔️  Starting Flask backend on https://sidequest-yz6z.onrender.com ..."
 cd "$(dirname "$0")/backend"
 python3 -m venv venv 2>/dev/null || true
 source venv/bin/activate
