@@ -189,16 +189,23 @@ def admin_required(fn):
 
 @app.route('/api/auth/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    if User.query.filter_by(username=data['username']).first():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Invalid request body'}), 400
+    username = data.get('username', '').strip()
+    email = data.get('email', '').strip()
+    password = data.get('password', '')
+    if not username or not email or not password:
+        return jsonify({'error': 'Username, email, and password are required'}), 400
+    if User.query.filter_by(username=username).first():
         return jsonify({'error': 'Username already taken'}), 400
-    if User.query.filter_by(email=data['email']).first():
+    if User.query.filter_by(email=email).first():
         return jsonify({'error': 'Email already registered'}), 400
     colors = ['#7C3AED', '#059669', '#DC2626', '#2563EB', '#D97706', '#DB2777']
     user = User(
-        username=data['username'],
-        email=data['email'],
-        password_hash=generate_password_hash(data['password']),
+        username=username,
+        email=email,
+        password_hash=generate_password_hash(password),
         avatar_color=colors[User.query.count() % len(colors)]
     )
     db.session.add(user)

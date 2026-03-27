@@ -13,7 +13,7 @@ const DIFF_CONFIG = {
 
 const CATEGORIES = ["All","Outdoor","Food","Culture","Fitness","Social","Adventure","Learning","Creative","Challenge","Nature"];
 
-function apiCall(path, opts = {}, token) {
+function apiCall(path, opts = {}, token) {  
   const headers = { ...(opts.headers || {}) };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (opts.body && typeof opts.body === "object" && !(opts.body instanceof FormData)) {
