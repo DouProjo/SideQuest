@@ -19,3 +19,5 @@ echo "   cd frontend && npm install && npm start"
 echo ""
 echo "Press Ctrl+C to stop the backend."
 wait $BACKEND_PID
+
+const API = "https://sidequest-yz6z.onrender.com";
