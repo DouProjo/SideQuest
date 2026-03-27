@@ -137,6 +137,14 @@ function AuthScreen({ onLogin }) {
     onLogin(res.token, res.user);
   }
 
+  async function guestLogin() {
+    setErr(""); setLoading(true);
+    const res = await apiCall("/api/auth/guest", { method: "POST" });
+    setLoading(false);
+    if (res.error) { setErr(res.error); return; }
+    onLogin(res.token, res.user);
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: "#0f0a1e", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Bebas+Neue&display=swap'); *{box-sizing:border-box;}`}</style>
@@ -167,6 +175,12 @@ function AuthScreen({ onLogin }) {
               fontWeight: 700, fontSize: 15, letterSpacing: 0.5
             }}>{loading ? "..." : mode === "login" ? "Begin Your Quest →" : "Join the Adventure →"}</button>
           </form>
+          <div style={{ marginTop: 16, textAlign: "center" }}>
+            <button onClick={guestLogin} disabled={loading} style={{
+              padding: "10px 20px", borderRadius: 8, border: "1px solid #2d1f5e", background: "transparent", color: "#8b78b0",
+              fontWeight: 600, fontSize: 14, cursor: "pointer"
+            }}>{loading ? "..." : "Continue as Guest"}</button>
+          </div>
         </div>
       </div>
     </div>
@@ -678,24 +692,26 @@ function ProfileTab({ token, user, setUser }) {
                   <button onClick={() => setEditing(false)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "none", color: "#8b78b0", fontSize: 13 }}>Cancel</button>
                 </>
               ) : (
-                <button onClick={() => setEditing(true)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "none", color: "#8b78b0", fontSize: 13 }}>Edit Profile</button>
+                !user.is_guest && <button onClick={() => setEditing(true)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #2d1f5e", background: "none", color: "#8b78b0", fontSize: 13 }}>Edit Profile</button>
               )}
             </div>
           </div>
         </div>
         {/* Color picker */}
-        <div style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 11, color: "#8b78b0", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Avatar Color</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {COLORS.map(c => (
-              <button key={c} onClick={() => setColor(c)} style={{
-                width: 28, height: 28, borderRadius: "50%", background: c, border: "none",
-                outline: user.avatar_color === c ? `3px solid #fff` : "none",
-                cursor: "pointer"
-              }} />
-            ))}
+        {!user.is_guest && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11, color: "#8b78b0", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Avatar Color</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {COLORS.map(c => (
+                <button key={c} onClick={() => setColor(c)} style={{
+                  width: 28, height: 28, borderRadius: "50%", background: c, border: "none",
+                  outline: user.avatar_color === c ? `3px solid #fff` : "none",
+                  cursor: "pointer"
+                }} />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Stats */}

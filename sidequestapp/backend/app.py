@@ -35,6 +35,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
+    is_guest = db.Column(db.Boolean, default=False)
     avatar_color = db.Column(db.String(20), default='#7C3AED')
     bio = db.Column(db.String(200), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -59,7 +60,8 @@ class User(db.Model):
             'total_points': self.total_points,
             'completed_count': self.completed_count,
             'created_at': self.created_at.isoformat(),
-            'is_admin': self.is_admin
+            'is_admin': self.is_admin,
+            'is_guest': self.is_guest
         }
         if include_email:
             d['email'] = self.email
@@ -247,6 +249,26 @@ def login():
 def me():
     user = User.query.get(get_jwt_identity())
     return jsonify(user.to_dict(include_email=True))
+
+
+@app.route('/api/auth/guest', methods=['POST'])
+def guest_login():
+    # Create a guest user with a unique username
+    guest_username = f"Guest_{uuid.uuid4().hex[:8]}"
+    guest_email = f"{guest_username}@guest.local"
+    guest_password = ""  # No password for guests
+    colors = ['#7C3AED', '#059669', '#DC2626', '#2563EB', '#D97706', '#DB2777']
+    user = User(
+        username=guest_username,
+        email=guest_email,
+        password_hash="",  # Empty hash for guests
+        is_guest=True,
+        avatar_color=colors[User.query.count() % len(colors)]
+    )
+    db.session.add(user)
+    db.session.commit()
+    token = create_access_token(identity=user.id)
+    return jsonify({'token': token, 'user': user.to_dict(include_email=True)})
 
 
 @app.route('/api/auth/logins', methods=['GET'])
